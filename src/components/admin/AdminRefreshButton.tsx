@@ -21,6 +21,12 @@ export default function AdminRefreshButton() {
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
+        body: JSON.stringify({
+          ...(import.meta.env.VITE_SHEET_URL
+            ? { sheetUrl: import.meta.env.VITE_SHEET_URL as string }
+            : {}),
+          user: "celite",
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);

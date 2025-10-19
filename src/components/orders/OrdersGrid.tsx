@@ -58,7 +58,14 @@ const OrdersGrid = ({ userId }: OrdersGridProps) => {
       setRefreshing(true);
       // Trigger server-side sync from Google Sheet, then refetch
       try {
-        await supabase.functions.invoke("sync-sheet");
+        await supabase.functions.invoke("sync-sheet", {
+          body: {
+            ...(import.meta.env.VITE_SHEET_URL
+              ? { sheetUrl: import.meta.env.VITE_SHEET_URL as string }
+              : {}),
+            user: "celite",
+          },
+        });
       } catch (e) {
         // Ignore function errors for editors; still try to refetch orders
         console.warn("sync-sheet invoke failed", e);
