@@ -58,10 +58,10 @@ const OrdersGrid = ({ userId }: OrdersGridProps) => {
       setRefreshing(true);
       // Trigger server-side sync from Google Sheet, then refetch
       try {
+        const sheetExportUrl = `https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/gviz/tq?tqx=out:json&gid=2062186565&cacheBust=${Date.now()}`;
         await supabase.functions.invoke("sync-sheet", {
           body: {
-            sheetUrl:
-              "https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/edit?resourcekey=&gid=2062186565#gid=2062186565",
+            sheetUrl: sheetExportUrl,
             user: "celite",
           },
         });

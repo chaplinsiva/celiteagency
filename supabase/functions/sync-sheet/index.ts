@@ -22,9 +22,30 @@ function parseGvizJsonp(input: string): GvizTable {
 
 function parseBudgetToNumber(budget: string | null | undefined): number {
   if (!budget) return 0;
-  const cleaned = budget.replace(/[^0-9]/g, "");
-  if (!cleaned) return 0;
-  return Number(cleaned);
+  let s = String(budget).toLowerCase().trim();
+  // normalize dashes and delimiters
+  s = s.replace(/[–—−]/g, "-");
+  // regex to capture numbers with optional thousand separators/decimals and optional suffix
+  const re = /(\d{1,3}(?:[,\s]\d{2,3})+|\d+(?:\.\d+)?)\s*(k|m|l|lac|lakh|lakhs|cr|crore)?/g;
+  const values: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    let numStr = m[1];
+    const suffix = m[2] || "";
+    // remove commas/spaces in digit groups
+    numStr = numStr.replace(/[\s,]/g, "");
+    let val = parseFloat(numStr);
+    if (!isFinite(val)) continue;
+    const suf = suffix.toLowerCase();
+    if (suf === "k") val *= 1_000;
+    else if (suf === "m") val *= 1_000_000;
+    else if (suf === "l" || suf === "lac" || suf === "lakh" || suf === "lakhs") val *= 100_000;
+    else if (suf === "cr" || suf === "crore") val *= 10_000_000;
+    values.push(Math.round(val));
+  }
+  if (values.length === 0) return 0;
+  // If a range like 1500 - 2500 is present, pick the higher bound
+  return Math.max(...values);
 }
 
 function addDays(days: number): string {
@@ -40,6 +61,15 @@ function mapTimelineToDueDate(timeline: string | null | undefined): string | nul
   if (t.includes("week") || t.includes("3-7")) return addDays(7);
   if (t.includes("month") || t.includes("1-4")) return addDays(28);
   return null;
+}
+
+function djb2Hash(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash) + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return (hash >>> 0).toString(36);
 }
 
 const corsHeaders = {
@@ -68,66 +98,131 @@ serve(async (req) => {
       auth: { persistSession: false },
     });
 
-    // Public GViz JSON endpoint for your sheet (first worksheet)
-    const SHEET_GVIZ_URL =
-      "https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/gviz/tq?tqx=out:json";
-
-    const res = await fetch(SHEET_GVIZ_URL);
-    if (!res.ok) throw new Error(`Sheet fetch failed: ${res.status}`);
-    const text = await res.text();
-    const gviz = parseGvizJsonp(text);
-
-    const colIndex: Record<string, number> = {};
-    gviz.table.cols.forEach((c, idx) => (colIndex[c.label] = idx));
-
-    const required = [
-      "What type of service you want ?",
-      "Could you briefly describe your project or needs?",
-      "What is your estimated budget for this project?",
-      "What is your preferred timeline for project completion?",
-      "What is your full name?",
-      "Timestamp",
-    ];
-    for (const r of required) {
-      if (!(r in colIndex)) throw new Error(`Missing column: ${r}`);
+    // Optional body to enable purge operation and override sheet URL
+    let purge = false;
+    let sheetUrlOverride: string | null = null;
+    try {
+      const body = await req.json();
+      purge = Boolean(body?.purge);
+      if (typeof body?.sheetUrl === "string" && body.sheetUrl.length > 0) {
+        sheetUrlOverride = body.sheetUrl as string;
+      }
+    } catch (_) {
+      // ignore parse error; treat as no body
     }
 
-    const rows = gviz.table.rows;
+    // Determine source URL: OpenSheet (if provided) or fallback to GViz JSON with cache-busting
+    const nowBust = Date.now();
+    const defaultGviz = `https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/gviz/tq?tqx=out:json&cacheBust=${nowBust}`;
+    const targetUrl = sheetUrlOverride
+      ? (sheetUrlOverride.includes("?") ? `${sheetUrlOverride}&cacheBust=${nowBust}` : `${sheetUrlOverride}?cacheBust=${nowBust}`)
+      : defaultGviz;
 
-    const toInsert = rows.map((row, idx) => {
-      const get = (label: string) => row.c[colIndex[label]]?.f ?? row.c[colIndex[label]]?.v ?? null;
-      const fullName = String(get("What is your full name?") ?? "").trim() || "Client";
-      const service = String(get("What type of service you want ?") ?? "").trim();
-      const desc = String(get("Could you briefly describe your project or needs?") ?? "").trim();
-      const budgetRaw = String(get("What is your estimated budget for this project?") ?? "").trim();
-      const timeline = String(get("What is your preferred timeline for project completion?") ?? "").trim();
-      const timestamp = String(get("Timestamp") ?? "").trim();
-
-      const requirement_text = [service, desc].filter(Boolean).join(" — ");
-      const price = parseBudgetToNumber(budgetRaw);
-      const due_date = mapTimelineToDueDate(timeline);
-      const sheet_row_id = timestamp || `row-${idx + 1}`;
-
-      return {
-        client_name: fullName,
-        requirement_text,
-        price,
-        due_date,
-        status: "available" as const,
-        source: "google_sheet" as const,
-        sheet_row_id,
-        raw_sheet_json: row as unknown as Record<string, unknown>,
-      };
+    const res = await fetch(targetUrl, {
+      headers: { "cache-control": "no-cache" },
     });
+    if (!res.ok) throw new Error(`Sheet fetch failed: ${res.status}`);
+    let toInsert: any[] = [];
+    let rowsLength = 0;
+    if (targetUrl.includes("opensheet.elk.sh")) {
+      // OpenSheet: JSON array of row objects keyed by header names
+      const json = await res.json();
+      if (!Array.isArray(json)) throw new Error("OpenSheet response not an array");
+      rowsLength = json.length;
+      toInsert = json.map((row: Record<string, any>, idx: number) => {
+        const get = (label: string) => row[label] ?? null;
+        const fullName = String(get("What is your full name?") ?? get("Full Name") ?? "").trim() || "Client";
+        const service = String(get("What type of service you want ?") ?? get("Service") ?? "").trim();
+        const desc = String(get("Could you briefly describe your project or needs?") ?? get("Description") ?? "").trim();
+        const budgetRaw = String(get("What is your estimated budget for this project?") ?? get("Budget") ?? "").trim();
+        const timeline = String(get("What is your preferred timeline for project completion?") ?? get("Timeline") ?? "").trim();
+        const timestamp = String(get("Timestamp") ?? get("timestamp") ?? "").trim();
 
-    // Fetch existing sheet_row_id to prevent duplicates
+        const requirement_text = [service, desc].filter(Boolean).join(" — ");
+        const price = parseBudgetToNumber(budgetRaw);
+        const due_date = mapTimelineToDueDate(timeline);
+        // Deterministic fallback if timestamp is missing/duplicate
+        const fingerprint = `${fullName}|${service}|${desc}|${budgetRaw}|${timeline}`;
+        const sheet_row_id = timestamp || djb2Hash(fingerprint);
+
+        // Skip empty rows (no meaningful content)
+        if (!service && !desc) return null;
+
+        return {
+          client_name: fullName,
+          requirement_text,
+          price,
+          due_date,
+          status: "available" as const,
+          source: "google_sheet" as const,
+          sheet_row_id,
+          raw_sheet_json: row as Record<string, unknown>,
+        };
+      }).filter(Boolean) as any[];
+    } else {
+      // GViz path as fallback
+      const text = await res.text();
+      const gviz = parseGvizJsonp(text);
+      const colIndex: Record<string, number> = {};
+      gviz.table.cols.forEach((c, idx) => (colIndex[c.label] = idx));
+
+      const required = [
+        "What type of service you want ?",
+        "Could you briefly describe your project or needs?",
+        "What is your estimated budget for this project?",
+        "What is your preferred timeline for project completion?",
+        "What is your full name?",
+        "Timestamp",
+      ];
+      for (const r of required) {
+        if (!(r in colIndex)) throw new Error(`Missing column: ${r}`);
+      }
+
+      const rows = gviz.table.rows;
+      rowsLength = rows.length;
+      toInsert = rows.map((row, idx) => {
+        const get = (label: string) => row.c[colIndex[label]]?.f ?? row.c[colIndex[label]]?.v ?? null;
+        const fullName = String(get("What is your full name?") ?? "").trim() || "Client";
+        const service = String(get("What type of service you want ?") ?? "").trim();
+        const desc = String(get("Could you briefly describe your project or needs?") ?? "").trim();
+        const budgetRaw = String(get("What is your estimated budget for this project?") ?? "").trim();
+        const timeline = String(get("What is your preferred timeline for project completion?") ?? "").trim();
+        const timestamp = String(get("Timestamp") ?? "").trim();
+
+        const requirement_text = [service, desc].filter(Boolean).join(" — ");
+        const price = parseBudgetToNumber(budgetRaw);
+        const due_date = mapTimelineToDueDate(timeline);
+        const fingerprint = `${fullName}|${service}|${desc}|${budgetRaw}|${timeline}`;
+        const sheet_row_id = timestamp || djb2Hash(fingerprint);
+
+        if (!service && !desc) return null;
+
+        return {
+          client_name: fullName,
+          requirement_text,
+          price,
+          due_date,
+          status: "available" as const,
+          source: "google_sheet" as const,
+          sheet_row_id,
+          raw_sheet_json: row as unknown as Record<string, unknown>,
+        };
+      }).filter(Boolean) as any[];
+    }
+
+    // Fetch existing orders keyed by sheet_row_id to prevent duplicates and enable updates
     const { data: existing, error: selErr } = await supabase
       .from("orders")
-      .select("sheet_row_id");
+      .select("sheet_row_id, status, taken_by");
     if (selErr) throw selErr;
-    const existingSet = new Set((existing ?? []).map((r: any) => r.sheet_row_id).filter(Boolean));
+    const existingMap = new Map<string, { status: string | null; taken_by: string | null }>();
+    for (const r of existing ?? []) {
+      const id = (r as any).sheet_row_id as string | null;
+      if (id) existingMap.set(id, { status: (r as any).status ?? null, taken_by: (r as any).taken_by ?? null });
+    }
 
-    const newRecords = toInsert.filter((r) => !existingSet.has(r.sheet_row_id));
+    const newRecords = toInsert.filter((r) => !existingMap.has(r.sheet_row_id));
+    const updateRecords = toInsert.filter((r) => existingMap.has(r.sheet_row_id));
 
     let inserted = 0;
     if (newRecords.length > 0) {
@@ -136,8 +231,57 @@ serve(async (req) => {
       inserted = newRecords.length;
     }
 
+    // Update existing rows: only update editable fields, preserve status/taken_by
+    let updated = 0;
+    for (const r of updateRecords) {
+      const { error: upErr } = await supabase
+        .from("orders")
+        .update({
+          client_name: r.client_name,
+          requirement_text: r.requirement_text,
+          price: r.price,
+          due_date: r.due_date,
+          raw_sheet_json: r.raw_sheet_json,
+          source: "google_sheet",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("sheet_row_id", r.sheet_row_id);
+      if (upErr) throw upErr;
+      updated += 1;
+    }
+
+    let purged = 0;
+    if (purge) {
+      // 1) Remove any non-sheet orders entirely
+      const { count: nonSheetCount, error: delErr1 } = await supabase
+        .from("orders")
+        .delete({ count: "exact" })
+        .neq("source", "google_sheet");
+      if (delErr1) throw delErr1;
+      purged += nonSheetCount ?? 0;
+
+      // 2) Reconcile sheet orders: delete rows that no longer exist in the sheet
+      const currentIds = new Set(toInsert.map((r) => r.sheet_row_id));
+      const staleIds: string[] = [];
+      for (const [id] of existingMap) {
+        if (!currentIds.has(id)) staleIds.push(id);
+      }
+      if (staleIds.length > 0) {
+        const chunk = 1000; // safety for IN clause limits
+        for (let i = 0; i < staleIds.length; i += chunk) {
+          const slice = staleIds.slice(i, i + chunk);
+          const { count: sheetDelCount, error: delErr2 } = await supabase
+            .from("orders")
+            .delete({ count: "exact" })
+            .in("sheet_row_id", slice);
+          if (delErr2) throw delErr2;
+          purged += sheetDelCount ?? 0;
+        }
+      }
+    }
+
     return new Response(
-      JSON.stringify({ ok: true, inserted, totalRows: rows.length }),
+      JSON.stringify({ ok: true, inserted, updated, purged, totalRows: rowsLength }),
       { headers: { "content-type": "application/json", ...corsHeaders } },
     );
   } catch (e) {

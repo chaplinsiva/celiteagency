@@ -14,6 +14,7 @@ export default function AdminRefreshButton() {
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-sheet`;
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
+      const sheetExportUrl = `https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/gviz/tq?tqx=out:json&gid=2062186565&cacheBust=${Date.now()}`;
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -22,9 +23,9 @@ export default function AdminRefreshButton() {
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify({
-          sheetUrl:
-            "https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/edit?resourcekey=&gid=2062186565#gid=2062186565",
+          sheetUrl: sheetExportUrl,
           user: "celite",
+          purge: true,
         }),
       });
       const json = await res.json().catch(() => ({}));
