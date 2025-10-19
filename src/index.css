@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import 'tw-animate-css';
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Global black background theme */
+    --background: 0 0% 0%;
+    --foreground: 220 10% 95%;
+    
+    --card: 0 0% 0%;
+    --card-foreground: 220 10% 95%;
+    
+    --popover: 0 0% 0%;
+    --popover-foreground: 220 10% 95%;
+    
+    /* Apple blue accent */
+    --primary: 211 100% 50%;
+    --primary-foreground: 220 10% 98%;
+    
+    /* Subtle surfaces */
+    --secondary: 220 15% 12%;
+    --secondary-foreground: 220 10% 95%;
+    
+    --muted: 220 10% 14%;
+    --muted-foreground: 220 8% 60%;
+    
+    --accent: 270 75% 60%;
+    --accent-foreground: 220 10% 98%;
+    
+    /* Status colors */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 220 10% 98%;
+    
+    --success: 142 76% 36%;
+    --success-foreground: 220 10% 98%;
+    
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 10% 98%;
+    
+    /* Borders and inputs */
+    --border: 220 8% 18%;
+    --input: 220 10% 14%;
+    --ring: 211 100% 50%;
+    
+    /* Radius - Apple uses moderate rounding */
+    --radius: 0.75rem;
+    
+    /* Sidebar */
+    --sidebar-background: 0 0% 0%;
+    --sidebar-foreground: 220 10% 90%;
+    --sidebar-primary: 211 100% 50%;
+    --sidebar-primary-foreground: 220 10% 98%;
+    --sidebar-accent: 220 15% 18%;
+    --sidebar-accent-foreground: 220 10% 95%;
+    --sidebar-border: 220 15% 18%;
+    --sidebar-ring: 211 100% 50%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(211 100% 50%), hsl(211 100% 40%));
+    --gradient-surface: linear-gradient(180deg, hsl(220 15% 12%), hsl(220 15% 10%));
+    --gradient-glow: radial-gradient(circle at 50% 0%, hsl(211 100% 50% / 0.15), transparent 50%);
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(220 15% 5% / 0.3);
+    --shadow-md: 0 4px 6px -1px hsl(220 15% 5% / 0.4), 0 2px 4px -1px hsl(220 15% 5% / 0.3);
+    --shadow-lg: 0 10px 15px -3px hsl(220 15% 5% / 0.5), 0 4px 6px -2px hsl(220 15% 5% / 0.4);
+    --shadow-glow: 0 0 30px hsl(211 100% 50% / 0.25);
+    
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  /* Accessible focus ring aligned with ReUI guidelines */
+  *:focus-visible {
+    @apply outline-ring rounded-sm shadow-none outline-2 outline-offset-2 transition-none;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  
+  /* Apple-inspired smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 5px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+/* Utility classes for gradients and effects */
+@layer utilities {
+  .glass-effect {
+    background: hsl(var(--card) / 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+  
+  .gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .glow-effect {
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* Fullscreen animated pink-blue gradient overlay on black */
+  .gradient-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(48% 48% at 15% 20%, hsl(320 100% 60% / 0.45), transparent 60%),
+                radial-gradient(42% 42% at 85% 25%, hsl(210 100% 60% / 0.45), transparent 60%),
+                radial-gradient(36% 36% at 50% 80%, hsl(280 100% 60% / 0.35), transparent 60%);
+    filter: blur(80px);
+    animation: gradient-move 12s ease-in-out infinite alternate;
+  }
+
+  @keyframes gradient-move {
+    0% { transform: translate3d(0,0,0) scale(1); opacity: 0.55; }
+    50% { transform: translate3d(0,-3%,0) scale(1.06); opacity: 0.7; }
+    100% { transform: translate3d(0,2%,0) scale(1.02); opacity: 0.55; }
+  }
+  
+  /* Fallback animated gradient on body background (in case overlay is obscured) */
+  .animated-body-bg {
+    background-image: radial-gradient(1000px 600px at 10% -10%, hsl(320 100% 60% / 0.18), transparent 60%),
+                      radial-gradient(900px 540px at 110% 0%, hsl(210 100% 60% / 0.18), transparent 60%);
+    background-attachment: fixed;
+    animation: body-glow 16s ease-in-out infinite alternate;
+  }
+  @keyframes body-glow {
+    0% { background-position: 0% 0%, 100% 0%; }
+    100% { background-position: 2% 1%, 98% 1%; }
+  }
+}
