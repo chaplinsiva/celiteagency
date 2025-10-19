@@ -60,9 +60,8 @@ const OrdersGrid = ({ userId }: OrdersGridProps) => {
       try {
         await supabase.functions.invoke("sync-sheet", {
           body: {
-            ...(import.meta.env.VITE_SHEET_URL
-              ? { sheetUrl: import.meta.env.VITE_SHEET_URL as string }
-              : {}),
+            sheetUrl:
+              "https://docs.google.com/spreadsheets/d/1U3FZz4TCV3axNXy9U97xa9Zq85pCpTPZFNIy4Nfg7us/edit?resourcekey=&gid=2062186565#gid=2062186565",
             user: "celite",
           },
         });
