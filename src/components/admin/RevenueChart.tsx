@@ -36,12 +36,14 @@ const RevenueChart = () => {
       .select(`
         price,
         actual_amount,
+        deliverable_link,
         taken_by,
         profiles!orders_taken_by_fkey (
           full_name
         )
       `)
       .eq("status", "completed")
+      .neq("deliverable_link", "FAILED")
       .not("taken_by", "is", null);
 
     if (orders) {

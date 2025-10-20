@@ -33,6 +33,7 @@ export default function MonthlyRevenueBar() {
       .from("orders")
       .select("price, actual_amount, completed_at")
       .eq("status", "completed")
+      .neq("deliverable_link", "FAILED")
       .gte("completed_at", from.toISOString())
       .lt("completed_at", to.toISOString());
 

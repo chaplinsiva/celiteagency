@@ -33,13 +33,18 @@ const AdminStats = () => {
       .select("*", { count: "exact", head: true })
       .eq("status", "completed");
 
-    // Total revenue from completed orders
+    // Total revenue from completed orders (excluding failed)
     const { data: revenueData } = await supabase
       .from("orders")
-      .select("price")
-      .eq("status", "completed");
+      .select("price, actual_amount, deliverable_link")
+      .eq("status", "completed")
+      .neq("deliverable_link", "FAILED");
 
-    const totalRevenue = revenueData?.reduce((sum, order) => sum + Number(order.price), 0) || 0;
+    const totalRevenue =
+      revenueData?.reduce(
+        (sum, order) => sum + Number((order as any).actual_amount ?? (order as any).price ?? 0),
+        0
+      ) || 0;
 
     setStats({
       totalOrders: totalOrders || 0,

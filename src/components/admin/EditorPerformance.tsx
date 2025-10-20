@@ -64,11 +64,16 @@ const EditorPerformance = () => {
       // Get total revenue
       const { data: revenueData } = await supabase
         .from("orders")
-        .select("price")
+        .select("price, actual_amount, deliverable_link")
         .eq("taken_by", userId)
-        .eq("status", "completed");
+        .eq("status", "completed")
+        .neq("deliverable_link", "FAILED");
 
-      const totalRevenue = revenueData?.reduce((sum, order) => sum + Number(order.price), 0) || 0;
+      const totalRevenue =
+        revenueData?.reduce(
+          (sum, order) => sum + Number((order as any).actual_amount ?? (order as any).price ?? 0),
+          0
+        ) || 0;
 
       editorStats.push({
         id: userId,
